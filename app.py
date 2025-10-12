@@ -18,7 +18,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- ŞİFRE KONTROL FONKSİYONU (DÜZELTİLMİŞ HALİ) ---
+# --- ŞİFRE KONTROL FONKSİYONU ---
 def check_password():
     try:
         hashed_passwords_list = st.secrets["credentials"]["passwords"]
@@ -33,11 +33,13 @@ def check_password():
         st.stop()
 
     is_authenticated = False
-    # Girilen şifrenin, secrets'taki hash'lenmiş şifrelerden herhangi biriyle eşleşip eşleşmediğini kontrol et
     for hashed_password in hashed_passwords_list:
-        if bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8')):
-            is_authenticated = True
-            break
+        try:
+            if bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8')):
+                is_authenticated = True
+                break
+        except Exception:
+            continue 
 
     if not is_authenticated:
         st.sidebar.error("Girilen şifre yanlış.")
@@ -48,17 +50,15 @@ def check_password():
     return True
 
 # --- ANA UYGULAMA KODU ---
-# Session state kullanarak kullanıcının giriş durumunu sakla
 if 'authentication_status' not in st.session_state:
     st.session_state['authentication_status'] = False
 
-# Eğer kullanıcı giriş yapmadıysa, şifre kontrolünü çalıştır
 if not st.session_state['authentication_status']:
     if check_password():
         st.session_state['authentication_status'] = True
-        st.experimental_rerun() # Giriş başarılı olunca sayfayı yeniden yükle
+        # DÜZELTME: st.experimental_rerun() yerine st.rerun() kullanıldı.
+        st.rerun() 
 else:
-    # --- Giriş Başarılı Olduktan Sonra Çalışacak Kodlar ---
     AKTIF_PALET = ['#E3120B', '#004165', '#8C8C8C', '#50A6C2', '#333333']
 
     DATA_FILES = {
