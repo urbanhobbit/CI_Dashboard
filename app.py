@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import streamlit_authenticator as stauth
+import bcrypt
 
 st.set_page_config(
     page_title="Çocuk İhtiyacı Araştırması Paneli",
@@ -9,26 +9,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- ARAYÜZ TEMASI (config.toml OLMADAN) ---
-# CSS'i doğrudan Markdown içine gömerek arayüz stilini ayarla
+# Arayüz stilini CSS ile doğrudan ayarla
 st.markdown("""
 <style>
-    /* Ana arkaplan rengi */
-    .main {
-        background-color: #F0F2F6;
-    }
-    /* Metin rengi */
-    body {
-        color: #31333F;
-    }
+    .main { background-color: #F0F2F6; }
+    body { color: #31333F; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# --- ŞİFRE KONTROL FONKSİYONU ---
+# --- ŞİFRE KONTROL FONKSİYONU (DÜZELTİLMİŞ HALİ) ---
 def check_password():
     try:
-        hashed_passwords = st.secrets["credentials"]["passwords"]
+        hashed_passwords_list = st.secrets["credentials"]["passwords"]
     except (FileNotFoundError, KeyError):
         st.error("Uygulama için şifre yapılandırması (secrets.toml) bulunamadı.")
         return False
@@ -40,14 +33,11 @@ def check_password():
         st.stop()
 
     is_authenticated = False
-    for hashed_password in hashed_passwords:
-        try:
-            # streamlit-authenticator'ın doğrulama metodunu kullan
-            if stauth.Hasher([hashed_password]).verify(password):
-                is_authenticated = True
-                break
-        except Exception:
-            continue 
+    # Girilen şifrenin, secrets'taki hash'lenmiş şifrelerden herhangi biriyle eşleşip eşleşmediğini kontrol et
+    for hashed_password in hashed_passwords_list:
+        if bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8')):
+            is_authenticated = True
+            break
 
     if not is_authenticated:
         st.sidebar.error("Girilen şifre yanlış.")
@@ -58,14 +48,17 @@ def check_password():
     return True
 
 # --- ANA UYGULAMA KODU ---
+# Session state kullanarak kullanıcının giriş durumunu sakla
 if 'authentication_status' not in st.session_state:
     st.session_state['authentication_status'] = False
 
+# Eğer kullanıcı giriş yapmadıysa, şifre kontrolünü çalıştır
 if not st.session_state['authentication_status']:
     if check_password():
         st.session_state['authentication_status'] = True
-        st.experimental_rerun()
+        st.experimental_rerun() # Giriş başarılı olunca sayfayı yeniden yükle
 else:
+    # --- Giriş Başarılı Olduktan Sonra Çalışacak Kodlar ---
     AKTIF_PALET = ['#E3120B', '#004165', '#8C8C8C', '#50A6C2', '#333333']
 
     DATA_FILES = {
@@ -185,7 +178,7 @@ else:
             col1, col2, col3 = st.columns(3)
             col1.metric("Toplam Soru Sayısı", f"{domain_df.shape[0]} adet")
             
-            if not domain_df.empty:
+            if not domain_df.empty and 'Genel' in domain_df.columns and not domain_df['Genel'].isnull().all():
                 highest_item_row = domain_df.loc[domain_df['Genel'].idxmax()]
                 col2.metric(
                     "En Yüksek Oranlı Soru (Genel)", 
