@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import bcrypt
+import gspread
+from gspread_dataframe import get_as_dataframe
+import ast
 
 st.set_page_config(
     page_title="Çocuk İhtiyacı Araştırması Paneli",
@@ -9,7 +12,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Arayüz stilini CSS ile doğrudan ayarla
 st.markdown("""
 <style>
     .main { background-color: #F0F2F6; }
@@ -17,13 +19,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 # --- ŞİFRE KONTROL FONKSİYONU ---
 def check_password():
     try:
-        hashed_passwords_list = st.secrets["credentials"]["passwords"]
+        hashed_passwords_string = st.secrets["credentials"]["passwords"]
+        hashed_passwords_list = ast.literal_eval(hashed_passwords_string) if isinstance(hashed_passwords_string, str) else hashed_passwords_string
     except (FileNotFoundError, KeyError):
-        st.error("Uygulama için şifre yapılandırması (secrets.toml) bulunamadı.")
+        st.error("Uygulama için şifre yapılandırması (Secrets) bulunamadı.")
         return False
 
     password = st.sidebar.text_input("Şifre:", type="password", key="password_input")
@@ -34,12 +36,9 @@ def check_password():
 
     is_authenticated = False
     for hashed_password in hashed_passwords_list:
-        try:
-            if bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8')):
-                is_authenticated = True
-                break
-        except Exception:
-            continue 
+        if bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8')):
+            is_authenticated = True
+            break
 
     if not is_authenticated:
         st.sidebar.error("Girilen şifre yanlış.")
@@ -56,14 +55,13 @@ if 'authentication_status' not in st.session_state:
 if not st.session_state['authentication_status']:
     if check_password():
         st.session_state['authentication_status'] = True
-        # DÜZELTME: st.experimental_rerun() yerine st.rerun() kullanıldı.
-        st.rerun() 
+        st.rerun()
 else:
     AKTIF_PALET = ['#E3120B', '#004165', '#8C8C8C', '#50A6C2', '#333333']
 
     DATA_FILES = {
-        "Çocuk Verileri": "Bilesik_Cocuk v04.xlsx",
-        "Ebeveyn Verileri": "Bilesik_Ebeveyn v03.xlsx"
+        "Çocuk Verileri": "Cocuk_Arastirmasi_Veri",
+        "Ebeveyn Verileri": "Ebeveyn_Arastirmasi_Veri"
     }
 
     CHILD_SHEET_CONFIG = {
@@ -87,10 +85,16 @@ else:
         "Ebeveyn Verileri": PARENT_SHEET_CONFIG
     }
 
-    @st.cache_data
-    def load_and_process_data(file_path, sheet_name):
+    @st.cache_data(ttl=600)
+    def load_and_process_data(spreadsheet_name, sheet_name):
         try:
-            df = pd.read_excel(file_path, sheet_name=sheet_name, header=0)
+            # GÜNCELLENDİ: gspread kullanarak Google Sheets'e bağlanma
+            gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+            spreadsheet = gc.open(spreadsheet_name)
+            worksheet = spreadsheet.worksheet(sheet_name)
+            df = get_as_dataframe(worksheet)
+            
+            # Geri kalan tüm veri işleme adımları AYNI
             df.columns = [str(col).strip() for col in df.columns]
             if 'Total' in df.columns:
                 df.rename(columns={'Total': 'Genel'}, inplace=True)
@@ -102,7 +106,7 @@ else:
             if not value_vars:
                 return None, None
 
-            df.dropna(subset=['Soru/Alt Kategori'], inplace=True)
+            df.dropna(subset=['Soru/Alt Kategori', 'Domain'], how='all', inplace=True)
             df = df[df['Soru/Alt Kategori'].astype(str).str.strip() != '']
             
             df['Domain'] = df['Domain'].ffill()
@@ -117,7 +121,7 @@ else:
             
             return df, value_vars
         except Exception as e:
-            st.error(f"Veri yüklenirken bir hata oluştu: {e}. Lütfen dosya adlarını ve sayfa adlarını kontrol edin.")
+            st.error(f"Google Sheets'ten veri okunurken bir hata oluştu: {e}")
             return None, None
 
     def get_dynamic_summary(df, value_vars):
@@ -148,10 +152,10 @@ else:
         index=0
     )
 
-    file_to_load = DATA_FILES[selected_dataset_name]
+    spreadsheet_to_load = DATA_FILES[selected_dataset_name]
     analysis_details = active_config[selected_analysis]
 
-    df, value_vars = load_and_process_data(file_to_load, analysis_details['sheet_name'])
+    df, value_vars = load_and_process_data(spreadsheet_to_load, analysis_details['sheet_name'])
 
     if df is not None and value_vars is not None:
         st.header(f"📈 {selected_analysis} ({selected_dataset_name})")
@@ -236,4 +240,4 @@ else:
                     mime='text/csv',
                 )
     else:
-        st.error("Veri yüklenemedi. Lütfen dosya adlarının, sayfa adlarının ve klasör yapısının doğru olduğundan emin olun.")
+        st.error("Veri yüklenemedi. Lütfen Google Sheets dosya adlarını ve sayfa adlarını kontrol edin veya Secrets yapılandırmanızı gözden geçirin.")
