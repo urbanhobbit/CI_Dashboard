@@ -2,5 +2,5 @@ streamlit
 pandas
 plotly
 openpyxl
-streamlit-authenticator
 bcrypt
+streamlit-gspread
