@@ -3,4 +3,5 @@ pandas
 plotly
 openpyxl
 bcrypt
-streamlit-gspread
+gspread
+gspread-dataframe
